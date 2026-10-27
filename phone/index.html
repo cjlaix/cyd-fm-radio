@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#080a12">
+<title>CYD Radio</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #080a12; --panel: #161c2c; --edge: #343e5c; --text: #e1e6f0; --dim: #78829b;
+    --accent: #ffb030; --cyan: #50c8ff; --green: #5ae182; --red: #ff5050;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: max(12px, env(safe-area-inset-top)) 16px 32px;
+    max-width: 520px; margin-inline: auto; user-select: none;
+  }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  header h1 b { color: var(--accent); }
+  button {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1.5px solid var(--edge); border-radius: var(--radius);
+    padding: 12px; cursor: pointer; touch-action: manipulation;
+  }
+  button:active { filter: brightness(1.4); }
+  #connect { border-color: var(--cyan); color: var(--cyan); padding: 8px 14px; border-radius: 999px; }
+  #connect.on { border-color: var(--green); color: var(--green); }
+  .card { background: var(--panel); border: 1.5px solid var(--edge); border-radius: var(--radius); padding: 14px 16px; }
+  .off { opacity: .45; pointer-events: none; }
+
+  /* Now playing */
+  .top { display: flex; justify-content: space-between; color: var(--dim); font-size: 14px; min-height: 20px; }
+  #ps { color: var(--green); font-weight: 600; }
+  .freq { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin: 6px 0 2px; }
+  #freq { font: 700 64px/1 system-ui, -apple-system, Roboto, sans-serif; font-variant-numeric: tabular-nums; color: var(--accent); letter-spacing: -1px; }
+  .freq span { color: var(--dim); font-size: 20px; }
+  .rt { overflow: hidden; white-space: nowrap; color: var(--cyan); font-size: 15px; min-height: 21px; text-align: center; }
+  .rt.scroll span { display: inline-block; padding-left: 100%; animation: marquee var(--dur, 12s) linear infinite; }
+  @keyframes marquee { to { transform: translateX(-100%); } }
+  .meta { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .bars { display: flex; align-items: flex-end; gap: 3px; height: 20px; margin-right: auto; }
+  .bars i { width: 5px; background: var(--edge); border-radius: 1px; }
+  .bars i.lit { background: var(--green); }
+  #rssi { color: var(--dim); font-size: 13px; margin-left: 6px; }
+  .chip { border-radius: 999px; padding: 6px 14px; font-size: 14px; font-weight: 600; }
+  .chip.on { background: var(--cyan); border-color: var(--cyan); color: var(--bg); }
+  #rds.on { background: var(--green); border-color: var(--green); }
+
+  /* Controls */
+  .row { display: grid; gap: 10px; margin-top: 12px; }
+  .seek { grid-template-columns: 1fr 1fr; }
+  .seek button { border-color: var(--accent); color: var(--accent); font-size: 18px; font-weight: 700; padding: 16px; }
+  .tune { grid-template-columns: 56px 1fr 56px; align-items: center; }
+  .tune button, .vol button { font-size: 20px; font-weight: 700; padding: 10px 0; color: var(--cyan); border-color: var(--cyan); }
+  input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; }
+  .vol { grid-template-columns: 56px 1fr 56px; align-items: center; }
+  .volbar { display: grid; grid-template-columns: repeat(16, 1fr); gap: 3px; height: 14px; }
+  .volbar i { background: var(--edge); border-radius: 2px; }
+  .volbar i.lit { background: var(--cyan); }
+  .volbar i.lit.hi { background: var(--accent); }
+  .volbar i.lit.max { background: var(--red); }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 22px 4px 8px; }
+
+  /* Presets */
+  .presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .presets button { padding: 14px 4px; font-weight: 700; font-size: 18px; color: var(--text); }
+  .presets button.empty { color: var(--dim); font-weight: 400; font-size: 14px; border-style: dashed; }
+  .presets button.cur { border-color: var(--accent); color: var(--accent); }
+  .hint { color: var(--dim); font-size: 13px; margin: 8px 4px 0; }
+
+  /* Settings */
+  .set { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--panel); }
+  .set:last-child { border-bottom: 0; }
+  .set .name { flex: 1; }
+  .set .name small { display: block; color: var(--dim); font-size: 12px; }
+  .ctl { display: flex; align-items: center; gap: 6px; min-width: 150px; justify-content: flex-end; }
+  .ctl button { padding: 6px 0; width: 40px; font-weight: 700; color: var(--cyan); border-color: var(--cyan); }
+  .ctl .val { min-width: 62px; text-align: center; color: var(--accent); font-weight: 600; }
+  .ctl .cycle { width: 150px; color: var(--accent); border-color: var(--accent); border-radius: 999px; }
+  .ctl .cycle.isoff { color: var(--dim); border-color: var(--edge); }
+  details summary { cursor: pointer; list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+  details summary h2::after { content: " ▸"; }
+  details[open] summary h2::after { content: " ▾"; }
+
+  #msg { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--panel);
+         border: 1.5px solid var(--edge); border-radius: 999px; padding: 10px 18px; font-size: 14px;
+         opacity: 0; transition: opacity .25s; pointer-events: none; white-space: nowrap; }
+  #msg.show { opacity: 1; }
+  .nobt { border-color: var(--red); color: var(--red); margin-bottom: 12px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1><b>FM</b> Radio</h1>
+  <button id="connect">Connect</button>
+</header>
+
+<div class="card nobt" id="nobt">This browser can't use Bluetooth. Open this page in <b>Chrome on Android</b>.</div>
+
+<main id="ui" class="off">
+  <section class="card">
+    <div class="top"><span id="ps"></span><span id="ct"></span></div>
+    <div class="freq"><div id="freq">--.-</div><span>MHz</span></div>
+    <div class="rt" id="rt"><span></span></div>
+    <div class="meta">
+      <div class="bars" id="bars"><i style="height:4px"></i><i style="height:8px"></i><i style="height:12px"></i><i style="height:16px"></i><i style="height:20px"></i><b id="rssi"></b></div>
+      <button class="chip" id="st">STEREO</button>
+      <button class="chip" id="rds">RDS</button>
+    </div>
+  </section>
+
+  <div class="row seek">
+    <button data-cmd="S-">◀◀ SEEK</button>
+    <button data-cmd="S+">SEEK ▶▶</button>
+  </div>
+
+  <div class="row tune">
+    <button id="fdown">−</button>
+    <input type="range" id="slider" min="875" max="1080" step="1">
+    <button id="fup">+</button>
+  </div>
+
+  <div class="row vol">
+    <button data-cmd="V-">−</button>
+    <div class="volbar" id="volbar"></div>
+    <button data-cmd="V+">+</button>
+  </div>
+
+  <h2>Presets</h2>
+  <div class="presets" id="presets"></div>
+  <p class="hint">Tap to tune · hold to save the current station · hold a saved one to replace or clear it</p>
+
+  <details id="settingsBox">
+    <summary><h2>Settings</h2></summary>
+    <div class="card" id="settings"></div>
+  </details>
+</main>
+
+<div id="msg"></div>
+
+<script>
+const SVC   = "6e5a0001-3c1d-4f7a-9b2e-7c2d9f1a0c01";
+const STATE = "6e5a0002-3c1d-4f7a-9b2e-7c2d9f1a0c01";
+const CMD   = "6e5a0003-3c1d-4f7a-9b2e-7c2d9f1a0c01";
+
+// Must match settingDefs[] in the sketch, in the same order
+const OFF_ON = ["OFF", "ON"];
+const SETTINGS = [
+  { name: "Seek threshold",   hint: "lower finds weaker stations",  min: 0, max: 15, step: true },
+  { name: "Mute while seek",  hint: "silence the scan noise",       min: 0, max: 1,  labels: OFF_ON },
+  { name: "Antenna input",    hint: "pin the antenna is wired to",  min: 1, max: 3,  labels: ["NONE", "LNAN", "LNAP", "DUAL"] },
+  { name: "LNA current",      hint: "higher may help weak signals", min: 0, max: 3,  step: true, labels: ["1.8 mA", "2.1 mA", "2.5 mA", "3.0 mA"] },
+  { name: "New demodulation", hint: "+1 dB sensitivity, may hiss",  min: 0, max: 1,  labels: OFF_ON },
+  { name: "Soft blend",       hint: "fade to mono on weak signal",  min: 0, max: 1,  labels: OFF_ON },
+  { name: "Blend threshold",  hint: "level where blending starts",  min: 0, max: 31, step: true, scale: 2, unit: " dB" },
+  { name: "Soft mute",        hint: "quieter on very weak signal",  min: 0, max: 1,  labels: OFF_ON },
+  { name: "Bass boost",       hint: "low-end lift",                 min: 0, max: 1,  labels: OFF_ON },
+  { name: "De-emphasis",      hint: "75 less hiss, 50 brighter",    min: 0, max: 1,  labels: ["75 us", "50 us"] },
+  { name: "RDS filter",       hint: "STRICT: slower, no garbage",   min: 0, max: 1,  labels: ["BASIC", "STRICT"] },
+  { name: "Bluetooth",        hint: "turning off disconnects this page", min: 0, max: 1, labels: OFF_ON },
+];
+
+const $ = id => document.getElementById(id);
+const enc = new TextEncoder(), dec = new TextDecoder();
+let device = null, stateCh = null, cmdCh = null, state = null;
+let userDisconnect = false, retryTimer = null;
+let gatt = Promise.resolve();   // GATT operations must not overlap
+
+function toast(text) {
+  const m = $("msg"); m.textContent = text; m.classList.add("show");
+  clearTimeout(toast.t); toast.t = setTimeout(() => m.classList.remove("show"), 2200);
+}
+
+function queue(op) {
+  gatt = gatt.then(op).catch(e => console.warn(e));
+  return gatt;
+}
+
+function send(cmd) {
+  if (!cmdCh) return;
+  queue(() => cmdCh.writeValueWithResponse(enc.encode(cmd)));
+}
+
+// ---------- connection ----------
+
+async function connect() {
+  if (device && device.gatt.connected) {
+    userDisconnect = true;
+    device.gatt.disconnect();
+    return;
+  }
+  try {
+    device = await navigator.bluetooth.requestDevice({ filters: [{ services: [SVC] }] });
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+    await attach();
+  } catch (e) {
+    if (e.name !== "NotFoundError") toast(e.message);   // NotFoundError = chooser cancelled
+  }
+}
+
+async function attach() {
+  userDisconnect = false;
+  $("connect").textContent = "Connecting…";
+  const server = await device.gatt.connect();
+  const svc = await server.getPrimaryService(SVC);
+  stateCh = await svc.getCharacteristic(STATE);
+  cmdCh = await svc.getCharacteristic(CMD);
+  stateCh.addEventListener("characteristicvaluechanged", onNotify);
+  await stateCh.startNotifications();
+  gatt = Promise.resolve();
+  await queue(readState);
+  setConnected(true);
+}
+
+function onDisconnected() {
+  setConnected(false);
+  stateCh = cmdCh = null;
+  if (userDisconnect) return;
+  toast("Connection lost, reconnecting…");
+  clearTimeout(retryTimer);
+  const retry = async () => {
+    try { await attach(); toast("Reconnected"); }
+    catch { retryTimer = setTimeout(retry, 3000); }
+  };
+  retryTimer = setTimeout(retry, 1000);
+}
+
+function setConnected(on) {
+  $("connect").textContent = on ? "Connected" : "Connect";
+  $("connect").classList.toggle("on", on);
+  $("ui").classList.toggle("off", !on);
+}
+
+// Notifications carry the whole status when it fits; otherwise read it in full
+async function onNotify(e) {
+  try { render(JSON.parse(dec.decode(e.target.value))); }
+  catch { queue(readState); }
+}
+
+async function readState() {
+  if (!stateCh) return;
+  const v = await stateCh.readValue();
+  render(JSON.parse(dec.decode(v)));
+}
+
+// ---------- rendering ----------
+
+function fmt(f) { return (f / 100).toFixed(1); }
+
+function render(s) {
+  state = s;
+  $("freq").textContent = fmt(s.f);
+  $("ps").textContent = s.ps || "";
+  $("ct").textContent = s.ct || "";
+  if (!sliding) $("slider").value = Math.round(s.f / 10);
+
+  const rt = $("rt"), span = rt.firstElementChild;
+  const text = s.rds ? (s.rt || "") : "RDS off";
+  if (span.textContent !== text) {
+    span.textContent = text;
+    rt.classList.toggle("scroll", text.length > 34);
+    rt.style.setProperty("--dur", Math.max(8, text.length / 4) + "s");
+  }
+
+  const bars = s.rssi >= 50 ? 5 : s.rssi >= 40 ? 4 : s.rssi >= 30 ? 3 : s.rssi >= 20 ? 2 : s.rssi >= 10 ? 1 : 0;
+  [...$("bars").querySelectorAll("i")].forEach((b, i) => b.classList.toggle("lit", i < bars));
+  $("rssi").textContent = s.rssi;
+
+  $("st").textContent = s.st ? "STEREO" : "MONO";
+  $("st").classList.toggle("on", !!s.st);
+  $("rds").classList.toggle("on", !!s.rds);
+
+  [...$("volbar").children].forEach((b, i) => {
+    b.className = i < s.v ? (i >= 13 ? "lit max" : i >= 10 ? "lit hi" : "lit") : "";
+  });
+
+  [...$("presets").children].forEach((b, i) => {
+    const f = s.p[i];
+    b.textContent = f ? fmt(f) : "+ Save";
+    b.classList.toggle("empty", !f);
+    b.classList.toggle("cur", f === s.f);
+  });
+
+  s.c.forEach((v, i) => {
+    const row = $("set" + i);
+    if (!row) return;
+    const d = SETTINGS[i], val = row.querySelector(".val, .cycle");
+    val.textContent = d.labels ? d.labels[v] : v * (d.scale || 1) + (d.unit || "");
+    val.classList.toggle("isoff", d.labels === OFF_ON && v === 0);
+  });
+}
+
+// ---------- building the controls ----------
+
+function buildVolume() {
+  for (let i = 0; i < 16; i++) $("volbar").appendChild(document.createElement("i"));
+}
+
+function buildPresets() {
+  for (let i = 0; i < 6; i++) {
+    const b = document.createElement("button");
+    b.textContent = "+ Save";
+    b.className = "empty";
+    let timer = null, held = false;
+    b.addEventListener("pointerdown", () => {
+      held = false;
+      timer = setTimeout(() => { held = true; presetHold(i); }, 600);
+    });
+    ["pointerup", "pointerleave", "pointercancel"].forEach(ev => b.addEventListener(ev, () => clearTimeout(timer)));
+    b.addEventListener("click", () => {
+      if (held || !state) return;
+      if (state.p[i]) send("P=" + i);
+      else { send("PS=" + i); toast("Saved " + fmt(state.f) + " to preset " + (i + 1)); }
+    });
+    b.addEventListener("contextmenu", e => e.preventDefault());
+    $("presets").appendChild(b);
+  }
+}
+
+function presetHold(i) {
+  if (!state) return;
+  navigator.vibrate?.(30);
+  if (state.p[i] && state.p[i] !== state.f) {
+    if (confirm("Replace preset " + (i + 1) + " (" + fmt(state.p[i]) + ") with " + fmt(state.f) + "?")) send("PS=" + i);
+  } else if (state.p[i]) {
+    if (confirm("Clear preset " + (i + 1) + "?")) send("PC=" + i);
+  } else {
+    send("PS=" + i);
+    toast("Saved " + fmt(state.f) + " to preset " + (i + 1));
+  }
+}
+
+function buildSettings() {
+  SETTINGS.forEach((d, i) => {
+    const row = document.createElement("div");
+    row.className = "set"; row.id = "set" + i;
+    row.innerHTML = `<div class="name">${d.name}<small>${d.hint}</small></div><div class="ctl"></div>`;
+    const ctl = row.querySelector(".ctl");
+    const change = delta => {
+      if (!state) return;
+      let v = state.c[i] + delta;
+      if (d.step) v = Math.min(d.max, Math.max(d.min, v));
+      else if (v > d.max) v = d.min;
+      if (v === state.c[i]) return;
+      if (i === SETTINGS.length - 1 && v === 0 && !confirm("Turn Bluetooth off? This page will disconnect until you turn it back on from the radio's settings page.")) return;
+      send(`C=${i},${v}`);
+    };
+    if (d.step) {
+      const minus = document.createElement("button"), plus = document.createElement("button"), val = document.createElement("span");
+      minus.textContent = "−"; plus.textContent = "+"; val.className = "val";
+      minus.onclick = () => change(-1); plus.onclick = () => change(1);
+      ctl.append(minus, val, plus);
+    } else {
+      const b = document.createElement("button");
+      b.className = "cycle"; b.onclick = () => change(1);
+      ctl.append(b);
+    }
+    $("settings").appendChild(row);
+  });
+}
+
+// ---------- events ----------
+
+let sliding = false;
+$("slider").addEventListener("input", e => { sliding = true; $("freq").textContent = (e.target.value / 10).toFixed(1); });
+$("slider").addEventListener("change", e => { sliding = false; send("T=" + e.target.value * 10); });
+$("fdown").onclick = () => state && send("T=" + Math.max(8750, state.f - 10));
+$("fup").onclick = () => state && send("T=" + Math.min(10800, state.f + 10));
+$("st").onclick = () => state && send("ST=" + (state.st ? 0 : 1));
+$("rds").onclick = () => state && send("RDS=" + (state.rds ? 0 : 1));
+document.querySelectorAll("[data-cmd]").forEach(b => b.onclick = () => send(b.dataset.cmd));
+$("connect").onclick = connect;
+
+buildVolume();
+buildPresets();
+buildSettings();
+
+if (!navigator.bluetooth) {
+  $("nobt").style.display = "block";
+  $("connect").disabled = true;
+} else if (navigator.bluetooth.getDevices) {
+  // Chrome can remember the radio: reconnect without the chooser when possible
+  navigator.bluetooth.getDevices().then(list => {
+    const known = list.find(d => d.name === "CYD Radio");
+    if (!known) return;
+    device = known;
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+    attach().catch(() => setConnected(false));
+  }).catch(() => {});
+}
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
+</body>
+</html>

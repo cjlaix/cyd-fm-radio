@@ -1,0 +1,13 @@
+{
+  "name": "CYD FM Radio",
+  "short_name": "CYD Radio",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080a12",
+  "theme_color": "#080a12",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
