@@ -9,6 +9,7 @@ I built it to feed local FM stations into a Japanese-import car stereo through i
 ## Features
 
 - **Main screen:**
+  - power button: tap to turn the radio off (muted, dim standby screen; tap anywhere to turn it back on), hold 3 s to restart
   - big frequency readout and band scale
   - signal-strength bars
   - volume bar
@@ -25,13 +26,16 @@ I built it to feed local FM stations into a Japanese-import car stereo through i
   - de-emphasis (75/50 µs)
   - RDS filter (BASIC / STRICT)
   - Bluetooth on/off
+  - **Restart radio** button (page 3, tap twice) for when the radio stops responding
 - **Phone control (BLE):**
+  - power on/off and restart
   - live status
   - seek and fine tuning
   - volume
   - 6 presets
   - all settings
 - **Remembers your setup:** station, volume, settings and presets are saved in EEPROM.
+- **Watchdog:** if the program ever freezes for 8 s, the ESP32 restarts by itself.
 - **Protection against I2C glitches:** a failed I2C read can no longer send the tuner off-band (to 189.3 MHz).
 
 ## Hardware
@@ -114,3 +118,5 @@ Commands:
 | `PS=n` | Save current station to preset n |
 | `PC=n` | Clear preset n |
 | `C=index,value` | Change a setting |
+| `PWR=0/1` | Radio off (muted standby) / on |
+| `RESET` | Save settings, reset the tuner chip and restart the ESP32 |

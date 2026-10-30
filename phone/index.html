@@ -29,6 +29,15 @@
     padding: 12px; cursor: pointer; touch-action: manipulation;
   }
   button:active { filter: brightness(1.4); }
+  #power { width: 44px; height: 44px; padding: 0; border-radius: 50%; font-size: 22px; line-height: 1;
+           color: var(--green); border-color: var(--green); }
+  #power.isoff { color: var(--dim); border-color: var(--edge); }
+  #power:disabled { opacity: .35; }
+  .standby { display: none; text-align: center; margin-bottom: 12px; border-color: var(--edge); color: var(--dim); }
+  .standby b { color: var(--text); }
+  #ui.radiooff .standby { display: block; }
+  #ui.radiooff #live { opacity: .35; pointer-events: none; }
+  .restart { width: 100%; margin-top: 14px; color: var(--red); border-color: var(--red); font-weight: 600; }
   #connect { border-color: var(--cyan); color: var(--cyan); padding: 8px 14px; border-radius: 999px; }
   #connect.on { border-color: var(--green); color: var(--green); }
   .card { background: var(--panel); border: 1.5px solid var(--edge); border-radius: var(--radius); padding: 14px 16px; }
@@ -99,12 +108,16 @@
 <body>
 <header>
   <h1><b>FM</b> Radio</h1>
+  <button id="power" title="Power (mute)" disabled>⏻</button>
   <button id="connect">Connect</button>
 </header>
 
 <div class="card nobt" id="nobt">This browser can't use Bluetooth. Open this page in <b>Chrome on Android</b>.</div>
 
 <main id="ui" class="off">
+  <div class="card standby"><b>Radio is off</b> (muted). Tap ⏻ to turn it on.</div>
+
+  <div id="live">
   <section class="card">
     <div class="top"><span id="ps"></span><span id="ct"></span></div>
     <div class="freq"><div id="freq">--.-</div><span>MHz</span></div>
@@ -136,10 +149,13 @@
   <h2>Presets</h2>
   <div class="presets" id="presets"></div>
   <p class="hint">Tap to tune · hold to save the current station · hold a saved one to replace or clear it</p>
+  </div>
 
   <details id="settingsBox">
     <summary><h2>Settings</h2></summary>
     <div class="card" id="settings"></div>
+    <button class="restart" id="restart">Restart radio</button>
+    <p class="hint">Use if the radio stops responding. It saves your settings, restarts, and this page reconnects by itself.</p>
   </details>
 </main>
 
@@ -233,6 +249,7 @@ function onDisconnected() {
 }
 
 function setConnected(on) {
+  $("power").disabled = !on;
   $("connect").textContent = on ? "Connected" : "Connect";
   $("connect").classList.toggle("on", on);
   $("ui").classList.toggle("off", !on);
@@ -256,6 +273,10 @@ function fmt(f) { return (f / 100).toFixed(1); }
 
 function render(s) {
   state = s;
+  const on = s.pwr !== 0;
+  $("ui").classList.toggle("radiooff", !on);
+  $("power").classList.toggle("isoff", !on);
+  $("power").title = on ? "Turn radio off (mute)" : "Turn radio on";
   $("freq").textContent = fmt(s.f);
   $("ps").textContent = s.ps || "";
   $("ct").textContent = s.ct || "";
@@ -377,6 +398,12 @@ $("st").onclick = () => state && send("ST=" + (state.st ? 0 : 1));
 $("rds").onclick = () => state && send("RDS=" + (state.rds ? 0 : 1));
 document.querySelectorAll("[data-cmd]").forEach(b => b.onclick = () => send(b.dataset.cmd));
 $("connect").onclick = connect;
+$("power").onclick = () => state && send("PWR=" + (state.pwr === 0 ? 1 : 0));
+$("restart").onclick = () => {
+  if (!confirm("Restart the radio? It will be silent for a few seconds.")) return;
+  send("RESET");
+  toast("Restarting radio…");
+};
 
 buildVolume();
 buildPresets();

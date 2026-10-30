@@ -4,6 +4,7 @@
 #include <RDA5807.h>
 #include <EEPROM.h>
 #include <XPT2046_Touchscreen.h>
+#include <esp_task_wdt.h>
 
 // Phone control over Bluetooth LE (needs the "NimBLE-Arduino" library, version 2.x).
 // Set to 0 to build without Bluetooth: the radio then works exactly as before.
@@ -41,6 +42,9 @@
 #define RDS_POLL_MS    40
 #define RDS_SCROLL_MS  350
 #define STORE_TIME     10000
+#define WDT_TIMEOUT_S  8       // restart automatically if the program freezes this long
+#define RESTART_HOLD_MS 3000   // hold the power button this long to restart
+#define STANDBY_BACKLIGHT 25   // 0..255 screen brightness while the radio is off
 
 // --- FM Band (10 kHz units) ---
 #define FREQ_MIN 8750
@@ -81,6 +85,8 @@ const int preset_address = 40;
 #define VOL_Y  167
 #define RT_WINDOW 36        // characters visible when radio text scrolls
 
+#define PWR_X      18
+#define PWR_Y      15
 #define GEAR_X     118
 #define GEAR_Y     15
 #define PILL_ST_X  146
@@ -96,6 +102,10 @@ const int preset_address = 40;
 #define SET_CTRL_X  196     // left edge of the value control
 #define SET_CTRL_W  118
 #define SET_BTN_W   34      // width of the - and + boxes
+#define RESTART_X   60      // restart button on the last settings page
+#define RESTART_Y   146
+#define RESTART_W   200
+#define RESTART_H   48
 
 enum Icon { ICON_SEEK_DOWN, ICON_VOL_DOWN, ICON_VOL_UP, ICON_SEEK_UP };
 
@@ -195,11 +205,7 @@ const SettingDef settingDefs[] = {
 #endif
 };
 const uint8_t settingCount = sizeof(settingDefs) / sizeof(settingDefs[0]);
-#if ENABLE_BLE
-const uint8_t pageFirst[] = { 0, 5, 11 };
-#else
-const uint8_t pageFirst[] = { 0, 5 };
-#endif
+const uint8_t pageFirst[] = { 0, 5, 11 };   // page 3: Bluetooth (if built in) + restart
 const uint8_t pageCount = sizeof(pageFirst) / sizeof(pageFirst[0]);
 
 // --- State ---
@@ -215,6 +221,10 @@ bool cfgDirty = false;
 bool inSettings = false;
 uint8_t settingsPage = 0;
 unsigned long resetArmedAt = 0;   // DEFAULTS needs a second tap within 3 s
+unsigned long restartArmedAt = 0; // RESTART needs a second tap within 3 s
+
+bool poweredOn = true;            // "off" = muted, standby screen; not saved, so it always starts on
+volatile unsigned long lastLoopMs = 0;
 
 bool settingsDirty = false;
 unsigned long lastChange = 0;
@@ -354,6 +364,29 @@ void drawGear(int16_t cx, int16_t cy, uint16_t color, uint16_t bg) {
   }
   tft.fillCircle(cx, cy, 7, color);
   tft.fillCircle(cx, cy, 3, bg);
+}
+
+// Power symbol: ring with a gap at the top and a stem through it
+void drawPowerIcon(int16_t cx, int16_t cy, int16_t r, uint16_t color, uint16_t bg) {
+  int16_t stem = max(2, r / 4);
+  tft.fillCircle(cx, cy, r, color);
+  tft.fillCircle(cx, cy, r - stem - 1, bg);
+  tft.fillRect(cx - r / 2, cy - r - 1, r, r, bg);
+  tft.fillRect(cx - stem / 2, cy - r - 2, stem, r + 2, color);
+}
+
+void drawStandby() {
+  char buf[16];
+  tft.fillScreen(TFT_BLACK);
+  drawPowerIcon(160, 90, 30, C_EDGE, TFT_BLACK);
+  tft.setTextPadding(0);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(C_DIM, TFT_BLACK);
+  tft.drawString("Radio off", 160, 150, 4);
+  tft.setTextColor(C_EDGE, TFT_BLACK);
+  tft.drawString("Tap anywhere to turn on", 160, 180, 2);
+  snprintf(buf, sizeof(buf), "%u.%u MHz", currentFrequency / 100, (currentFrequency % 100) / 10);
+  tft.drawString(buf, 160, 205, 2);
 }
 
 void drawSignal(bool force) {
@@ -514,9 +547,10 @@ void drawUI() {
   tft.setTextDatum(ML_DATUM);
   tft.setTextPadding(0);
   tft.setTextColor(C_ACCENT, C_BG);
-  tft.drawString("FM", 8, 15, 4);
+  tft.drawString("FM", 40, 15, 4);
   tft.setTextColor(C_TEXT, C_BG);
-  tft.drawString("RADIO", 46, 16, 2);
+  tft.drawString("RADIO", 76, 16, 1);
+  drawPowerIcon(PWR_X, PWR_Y, 9, C_GREEN, C_BG);
   drawGear(GEAR_X, GEAR_Y, C_DIM, C_BG);
 #if ENABLE_BLE
   drawBleDot();
@@ -648,12 +682,27 @@ void drawSettings() {
 #if ENABLE_BLE
   drawBleStatusLine();
 #endif
+  drawRestartButton();
+}
+
+void drawRestartButton() {
+  if (settingsPage != pageCount - 1) return;
+  bool armed = restartArmedAt && millis() - restartArmedAt < 3000;
+  tft.fillRoundRect(RESTART_X, RESTART_Y, RESTART_W, RESTART_H, 12, armed ? C_RED : C_PANEL);
+  tft.drawRoundRect(RESTART_X, RESTART_Y, RESTART_W, RESTART_H, 12, C_RED);
+  tft.setTextPadding(0);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(armed ? C_BG : C_RED, armed ? C_RED : C_PANEL);
+  tft.drawString(armed ? "TAP AGAIN TO RESTART" : "RESTART RADIO", 160, RESTART_Y + RESTART_H / 2 + 1, 2);
+  tft.setTextColor(C_DIM, C_BG);
+  tft.drawString("Use if the radio stops responding.", 160, RESTART_Y + RESTART_H + 16, 1);
+  tft.drawString("Or hold the power button for 3 seconds.", 160, RESTART_Y + RESTART_H + 30, 1);
 }
 
 void openSettings() {
   inSettings = true;
   settingsPage = 0;
-  resetArmedAt = 0;
+  resetArmedAt = restartArmedAt = 0;
   drawSettings();
 }
 
@@ -697,6 +746,14 @@ void handleSettingsTouch(int16_t x, int16_t y, bool newPress, bool canRepeat) {
         drawSettingsHeader();
       }
     }
+    return;
+  }
+
+  if (settingsPage == pageCount - 1 && inRect(x, y, RESTART_X, RESTART_Y - 6, RESTART_W, RESTART_H + 12)) {
+    if (!newPress) return;
+    if (restartArmedAt && millis() - restartArmedAt < 3000) restartRadio();
+    restartArmedAt = millis();
+    drawRestartButton();
     return;
   }
 
@@ -952,6 +1009,7 @@ void onFrequencyChanged(uint16_t f) {
 
 // Called by rx.seek() on every step so the display follows the scan
 void showFrequencySeek() {
+  esp_task_wdt_reset();
   uint16_t f = rx.getFrequency();
   if (!inBand(f) || f == currentFrequency) return;   // skip glitched I2C reads
   currentFrequency = f;
@@ -1003,6 +1061,62 @@ void toggleRds() {
 }
 
 // ============================================================
+//  Power and restart
+// ============================================================
+
+// "Off" mutes the tuner and shows a dim standby screen; any tap turns it back on
+void setPower(bool on) {
+  if (on == poweredOn) return;
+  poweredOn = on;
+  if (on) {
+    rx.setMute(false);
+    analogWrite(SCREEN_BACKLIGHT_PIN, 255);
+    drawUI();
+    clearRds();
+  } else {
+    if (inSettings) {
+      inSettings = false;
+      saveConfig();
+    }
+    rx.setMute(true);
+    if (settingsDirty) {
+      saveAllReceiverInformation();
+      if (cfgDirty) saveConfig();
+      settingsDirty = cfgDirty = false;
+    }
+    drawStandby();
+    analogWrite(SCREEN_BACKLIGHT_PIN, STANDBY_BACKLIGHT);
+  }
+}
+
+// Saves everything, resets the tuner chip (in case it is what hung) and reboots the ESP32
+void restartRadio() {
+  saveAllReceiverInformation();
+  saveConfig();
+  analogWrite(SCREEN_BACKLIGHT_PIN, 255);
+  tft.fillScreen(C_BG);
+  tft.setTextPadding(0);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(C_ACCENT, C_BG);
+  tft.drawString("Restarting...", 160, 120, 4);
+  rx.setMute(true);
+  rx.softReset();
+  delay(200);
+  ESP.restart();
+}
+
+// The ESP32 restarts by itself if loop() stops running for WDT_TIMEOUT_S
+void startWatchdog() {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  esp_task_wdt_config_t wdt = { .timeout_ms = WDT_TIMEOUT_S * 1000, .idle_core_mask = 0, .trigger_panic = true };
+  if (esp_task_wdt_reconfigure(&wdt) != ESP_OK) esp_task_wdt_init(&wdt);
+#else
+  esp_task_wdt_init(WDT_TIMEOUT_S, true);
+#endif
+  esp_task_wdt_add(NULL);
+}
+
+// ============================================================
 //  Remote control (commands from the phone)
 // ============================================================
 
@@ -1015,8 +1129,12 @@ void tuneTo(uint16_t f) {
 
 // Commands: S+ S-  V+ V- V=n  T=freq  ST=0/1  RDS=0/1  P=n (tune preset)
 //           PS=n (save current to preset)  PC=n (clear preset)  C=index,value (setting)
+//           PWR=0/1 (off/on)  RESET (restart)
 void handleRemoteCommand(const char* c) {
   int a, b;
+  if (!strcmp(c, "RESET")) { restartRadio(); return; }
+  if (sscanf(c, "PWR=%d", &a) == 1) { setPower(a != 0); return; }
+  if (!poweredOn) return;   // everything else waits until the radio is turned on
   if (!strcmp(c, "S+")) seek(1);
   else if (!strcmp(c, "S-")) seek(0);
   else if (!strcmp(c, "V+")) { rx.setVolumeUp(); drawVolume(); markDirty(); }
@@ -1060,6 +1178,8 @@ class BleCmdCallbacks : public NimBLECharacteristicCallbacks {
     const NimBLEAttValue& v = ch->getValue();
     size_t n = min((size_t)v.length(), sizeof(cmd.text) - 1);
     memcpy(cmd.text, v.data(), n);
+    // loop() is stuck, so the queue would never be read: restart right here
+    if (!strcmp(cmd.text, "RESET") && millis() - lastLoopMs > 3000) ESP.restart();
     xQueueSend(bleCmdQueue, &cmd, 0);
   }
 };
@@ -1106,7 +1226,7 @@ bool bleConnected() {
 
 // Small dot next to the gear: lit while a phone is connected
 void drawBleDot() {
-  if (inSettings) return;
+  if (inSettings || !poweredOn) return;
   tft.fillCircle(GEAR_X + 13, GEAR_Y - 9, 3, bleShownConnected ? C_CYAN : C_BG);
 }
 
@@ -1134,8 +1254,8 @@ void jsonString(char*& p, char* end, const char* key, const char* val) {
 void buildStatusJson(char* out, size_t n) {
   char* p = out;
   char* end = out + n;
-  p += snprintf(p, end - p, "{\"f\":%u,\"v\":%u,\"st\":%d,\"rds\":%d,\"rssi\":%u",
-                currentFrequency, rx.getVolume(), bSt, bRds, lastRssi);
+  p += snprintf(p, end - p, "{\"f\":%u,\"v\":%u,\"st\":%d,\"rds\":%d,\"rssi\":%u,\"pwr\":%d",
+                currentFrequency, rx.getVolume(), bSt, bRds, lastRssi, poweredOn);
   jsonString(p, end, "ps", rdsName.shown);
   jsonString(p, end, "rt", rdsText.shown);
   jsonString(p, end, "ct", rdsClock.shown);
@@ -1188,8 +1308,29 @@ bool inRect(int16_t x, int16_t y, int16_t rx_, int16_t ry, int16_t rw, int16_t r
 void handleTouch() {
   static unsigned long lastSeen = 0;
   static unsigned long lastAction = 0;
+  static unsigned long powerPressAt = 0;   // power button: tap = off, hold = restart
+  static bool waitRelease = false;         // the tap that woke the radio shouldn't also press a button
 
-  if (!touch.touched()) return;
+  bool touched = touch.touched();
+
+  if (waitRelease) {
+    if (touched) lastSeen = millis();
+    else if (millis() - lastSeen > TOUCH_RELEASE_MS) waitRelease = false;
+    return;
+  }
+
+  if (powerPressAt) {
+    if (touched) {
+      if (millis() - powerPressAt > RESTART_HOLD_MS) restartRadio();
+      lastSeen = millis();
+    } else if (millis() - lastSeen > TOUCH_RELEASE_MS) {
+      powerPressAt = 0;
+      setPower(false);
+    }
+    return;
+  }
+
+  if (!touched) return;
 
   TS_Point p = touch.getPoint();
   int16_t x = constrain(map(p.x, TOUCH_X_MIN, TOUCH_X_MAX, 0, 319), 0, 319);
@@ -1203,6 +1344,12 @@ void handleTouch() {
   bool newPress = millis() - lastSeen > TOUCH_RELEASE_MS;
   lastSeen = millis();
   bool canRepeat = millis() - lastAction > TOUCH_REPEAT_MS;
+
+  if (!poweredOn) {
+    setPower(true);
+    waitRelease = true;
+    return;
+  }
 
   if (inSettings) {
     if (newPress || canRepeat) lastAction = millis();
@@ -1234,7 +1381,11 @@ void handleTouch() {
 
   // Header: gear and toggles (touch zones are taller than the icons for easier hits)
   if (newPress && y < 34) {
-    if (inRect(x, y, GEAR_X - 22, 0, 44, 34)) openSettings();
+    if (inRect(x, y, 0, 0, 38, 34)) {
+      powerPressAt = millis();
+      drawPowerIcon(PWR_X, PWR_Y, 9, C_RED, C_BG);   // red while held
+    }
+    else if (inRect(x, y, GEAR_X - 22, 0, 44, 34)) openSettings();
     else if (inRect(x, y, PILL_ST_X - 4, 0, PILL_ST_W + 6, 34)) toggleStereo();
     else if (inRect(x, y, PILL_RDS_X - 2, 0, PILL_RDS_W + 6, 34)) toggleRds();
     lastAction = millis();
@@ -1329,13 +1480,22 @@ void setup() {
   drawUI();
 
   lastStatus = lastRdsPoll = lastRdsScroll = millis();
+  startWatchdog();
 }
 
 void loop() {
+  esp_task_wdt_reset();
+  lastLoopMs = millis();
+
   handleTouch();
 #if ENABLE_BLE
   bleLoop();
 #endif
+
+  if (!poweredOn) {
+    delay(20);
+    return;
+  }
 
   if (inSettings) {
     if (millis() - lastStatus > 500) {
@@ -1343,6 +1503,10 @@ void loop() {
       if (resetArmedAt && millis() - resetArmedAt >= 3000) {
         resetArmedAt = 0;
         drawSettingsHeader();
+      }
+      if (restartArmedAt && millis() - restartArmedAt >= 3000) {
+        restartArmedAt = 0;
+        drawRestartButton();
       }
       lastStatus = millis();
     }
