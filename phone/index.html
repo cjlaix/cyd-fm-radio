@@ -31,6 +31,7 @@
   button:active { filter: brightness(1.4); }
   #power { width: 44px; height: 44px; padding: 0; border-radius: 50%; font-size: 22px; line-height: 1;
            color: var(--green); border-color: var(--green); }
+  #power svg { width: 22px; height: 22px; display: block; margin: auto; }
   #power.isoff { color: var(--dim); border-color: var(--edge); }
   #power:disabled { opacity: .35; }
   .standby { display: none; text-align: center; margin-bottom: 12px; border-color: var(--edge); color: var(--dim); }
@@ -108,14 +109,14 @@
 <body>
 <header>
   <h1><b>FM</b> Radio</h1>
-  <button id="power" title="Power (mute)" disabled>⏻</button>
+  <button id="power" title="Power (mute)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M7.05 6.05a8 8 0 1 0 9.9 0"/><path d="M12 2.5v9"/></svg></button>
   <button id="connect">Connect</button>
 </header>
 
 <div class="card nobt" id="nobt">This browser can't use Bluetooth. Open this page in <b>Chrome on Android</b>.</div>
 
 <main id="ui" class="off">
-  <div class="card standby"><b>Radio is off</b> (muted). Tap ⏻ to turn it on.</div>
+  <div class="card standby"><b>Radio is off</b> (muted). Tap the power button to turn it on.</div>
 
   <div id="live">
   <section class="card">
