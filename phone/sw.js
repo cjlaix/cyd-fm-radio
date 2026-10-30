@@ -12,10 +12,12 @@ self.addEventListener("activate", e => {
   self.clients.claim();
 });
 
-// Network first (so updates show up), cache when offline
+// Network first (so updates show up), cache when offline.
+// "no-cache" makes the browser check GitHub every time instead of reusing
+// its own 10-minute copy, so a new version shows on the next load.
 self.addEventListener("fetch", e => {
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-cache" })
       .then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r; })
       .catch(() => caches.match(e.request))
   );
