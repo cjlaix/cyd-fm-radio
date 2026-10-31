@@ -4,7 +4,7 @@ A touch-screen FM radio built from an ESP32 "Cheap Yellow Display" (ESP32-2432S0
 
 I built it to feed local FM stations into a Japanese-import car stereo through its 3.5 mm AUX input. The car radio only tunes 76–90 MHz.
 
-![Phone control page](docs/phone_preview.png)
+![Phone control page](docs/phone_interface.jpg)
 
 ## Features
 
